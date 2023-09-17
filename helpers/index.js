@@ -5,5 +5,5 @@ const wrapController = require("./wrapController");
 module.exports = {
   HttpError,
   handleMongooseError,
-  wrapController,
+  wrapController, 
 };
