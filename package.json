@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "@types/jest": "^29.5.4",
-    "bcrypt": "^5.1.1",
     "bcryptjs": "^2.4.3",
     "cors": "2.8.5",
     "cross-env": "7.0.3",
@@ -25,6 +24,7 @@
     "mongoose": "^7.4.5",
     "morgan": "1.10.0",
     "multer": "^1.4.5-lts.1",
+    "nodemailer": "^6.9.5",
     "supertest": "^6.3.3"
   },
   "devDependencies": {

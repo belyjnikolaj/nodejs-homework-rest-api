@@ -18,5 +18,11 @@ router.patch(
   upload.single("avatar"),
   wrap.updateAvatar
 );
+router.get("/verify/:verificationToken", wrap.verify);
+router.post(
+  "/verify",
+  isValidData(schemas.emailSchema),
+  wrap.resendVerifyEmail
+);
 
 module.exports = router;
