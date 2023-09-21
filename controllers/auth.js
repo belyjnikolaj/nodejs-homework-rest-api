@@ -1,4 +1,5 @@
-const bcrypt = require("bcrypt");
+const crypto = require("node:crypto");
+const bcryptjs = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const gravatar = require("gravatar");
 const path = require("node:path");
@@ -9,7 +10,11 @@ const { User } = require("../models/user");
 
 const { HttpError, wrapController } = require("../helpers");
 
-const { SECRET_KEY } = process.env;
+const { SECRET_KEY, BASE_URL } = process.env;
+
+const verificationToken = crypto.randomUUID();
+
+const sendEmail = require("../helpers/sendEmail");
 
 const avatarsDir = path.join(__dirname, "../", "public", "avatars");
 
@@ -21,12 +26,26 @@ const register = async (req, res) => {
     throw HttpError(409, "Email in use");
   }
 
-  const hashPassword = await bcrypt.hash(password, 10);
+  const hashPassword = await bcryptjs.hash(password, 10);
   const avatarURL = gravatar.url(email);
   const newUser = await User.create({
     ...req.body,
     password: hashPassword,
     avatarURL,
+    verificationToken,
+  });
+
+  await sendEmail({
+    to: email,
+    subject: `Welcome on board, ${email}`,
+    html: `
+    <p>To confirm your registration, please click on link below</p>
+    <p>
+      <a href="${BASE_URL}/users/verify/${verificationToken}">Click me</a>
+    </p>
+    `,
+    text: `To confirm your registration, please click on link below\n
+    ${BASE_URL}/users/verify/${verificationToken}`,
   });
 
   res.status(201).json({
@@ -43,9 +62,12 @@ const login = async (req, res) => {
   if (!user) {
     throw HttpError(401, "Email or password is wrong");
   }
-  const passwordCompare = await bcrypt.compare(password, user.password);
+  const passwordCompare = await bcryptjs.compare(password, user.password);
   if (!passwordCompare) {
     throw HttpError(401, "Email or password is wrong");
+  }
+  if (!user.verify) {
+    throw HttpError(401, "Please verify your email");
   }
   const payload = {
     id: user._id,
@@ -84,7 +106,7 @@ const updateSubscription = async (req, res) => {
   const { _id } = req.user;
 
   if (!["starter", "pro", "business"].includes(subscription)) {
-    return res.status(400).json({ message: "Invalid subscription value" });
+    throw HttpError(400, "Invalid subscription value");
   }
 
   const updatedUser = await User.findByIdAndUpdate(
@@ -107,11 +129,13 @@ const updateAvatar = async (req, res) => {
   await fs.rename(tempUpload, resultUpload);
 
   try {
-  const image = await Jimp.read(resultUpload);
-  await image.resize(250, 250).write(resultUpload);
+    const image = await Jimp.read(resultUpload);
+    await image.resize(250, 250).write(resultUpload);
   } catch (error) {
     console.error("Error while processing the avatar:", error);
-    return res.status(500).json({ message: "Error while processing the avatar" });
+    return res
+      .status(500)
+      .json({ message: "Error while processing the avatar" });
   }
 
   const doc = await User.findByIdAndUpdate(
@@ -129,6 +153,48 @@ const updateAvatar = async (req, res) => {
   });
 };
 
+const verify = async (req, res) => {
+  const { verificationToken } = req.params;
+  const user = await User.findOne({ verificationToken }).exec();
+
+  if (!user) {
+    throw HttpError(404, "User not found");
+  }
+
+  await User.findByIdAndUpdate(user._id, {
+    verify: true,
+    verificationToken: null,
+  }).exec();
+
+  res.json({ message: "Verification successful" });
+};
+
+const resendVerifyEmail = async (req, res) => {
+  const { email } = req.body;
+  const user = await User.findOne({ email });
+  if (!user) {
+    throw HttpError(400, "missing required field email");
+  }
+
+  if (user.verify) {
+    throw HttpError(400, "Verification has already been passed");
+  }
+  await sendEmail({
+    to: email,
+    subject: `Welcome on board, ${email}`,
+    html: `
+    <p>To confirm your registration, please click on link below</p>
+    <p>
+      <a href="${BASE_URL}/users/verify/${user.verificationToken}">Click me</a>
+    </p>
+    `,
+    text: `To confirm your registration, please click on link below\n
+    ${BASE_URL}/users/verify/${user.verificationToken}`,
+  });
+
+  res.json({ message: "Verification email sent" });
+};
+
 module.exports = {
   register: wrapController(register),
   login: wrapController(login),
@@ -136,4 +202,6 @@ module.exports = {
   logout: wrapController(logout),
   updateSubscription: wrapController(updateSubscription),
   updateAvatar: wrapController(updateAvatar),
+  verify: wrapController(verify),
+  resendVerifyEmail: wrapController(resendVerifyEmail),
 };
